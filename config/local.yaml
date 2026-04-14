@@ -1,0 +1,6 @@
+env: "local" # local, dev, prod
+database_url: "postgresql://username:password@localhost:5432/mydatabase"
+http_server:
+  address: "localhost:8080"
+  timeout: 4s
+  idle_timeout: 60s

@@ -1,0 +1,30 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Tests / coverage
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+.AppleDouble
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Секреты и локальный конфиг
+.env
+.env.*
+!.env.example
+
+# Go workspace (локальные оверлеи модулей)
+go.work
+go.work.sum
