@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/sheixpeer/disk-service/internal/config"
+	"github.com/sheixpeer/disk-service/internal/lib/logger/sl"
+	"github.com/sheixpeer/disk-service/internal/repository/postgres"
 )
 
 const (
@@ -20,6 +22,14 @@ func main() {
 
 	log.Info("starting disk-service", slog.String("env", cfg.Env))
 	log.Debug("debug message are enabled")
+
+	repo, err := postgres.New(cfg.DatabaseUrl)
+	if err != nil {
+		log.Error("failed to init repository", sl.Err(err))
+		os.Exit(1)
+	}
+
+	_ = repo
 
 	// TODO: init router: chi, "chi render"
 

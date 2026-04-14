@@ -12,6 +12,11 @@
 .idea/
 .vscode/
 
+# Agents
+.claude/
+.codex/
+.cursor/
+
 # OS
 .DS_Store
 .AppleDouble
