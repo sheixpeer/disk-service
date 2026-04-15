@@ -15,6 +15,7 @@
 # Agents
 .claude/
 .codex/
+.codex
 .cursor/
 
 # OS
