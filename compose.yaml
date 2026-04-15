@@ -19,7 +19,7 @@ services:
 
 # docker compose up -d
 # docker compose down
-# docker compose exec postgres psql -U postgres -d mydb
+# docker compose exec postgres psql -U postgres -d app
 
 # docker stop pg-local (container_name)
 # docker start pg-local (container_name)
