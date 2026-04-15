@@ -1,10 +1,21 @@
 services:
   postgres:
     image: postgres:16
+    container_name: pg
     environment:
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: app
     ports:
       - "5432:5432"
+
+# services:
+#   postgres:
+#     image: postgres:16
+#     environment:
+#       POSTGRES_PASSWORD: postgres
+#     ports:
+#       - "5432:5432"
 
 # docker compose up -d
 # docker compose down

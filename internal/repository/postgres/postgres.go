@@ -5,13 +5,18 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sheixpeer/disk-service/internal/repository"
 )
 
-const pgUniqueViolation = "23505"
+const (
+	pgCheckViolation      = "23514"
+	pgForeignKeyViolation = "23503"
+	pgUniqueViolation     = "23505"
+)
 
 type Repository struct {
 	pool *pgxpool.Pool
@@ -131,6 +136,56 @@ func (r *Repository) EnsureUserID(ctx context.Context, externalUserID string) (i
 	`, externalUserID).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", op, err)
+	}
+
+	return id, nil
+}
+
+func (r *Repository) CreateFile(
+	ctx context.Context,
+	userID int64,
+	path string,
+	sizeBytes int64,
+	mimeType *string,
+	storageKey string,
+) (string, error) {
+	const op = "repository.postgres.CreateFile"
+
+	if userID <= 0 {
+		return "", fmt.Errorf("%s: userID must be positive", op)
+	}
+	if path == "" {
+		return "", fmt.Errorf("%s: path is empty", op)
+	}
+	if storageKey == "" {
+		return "", fmt.Errorf("%s: storageKey is empty", op)
+	}
+	if sizeBytes < 0 {
+		return "", fmt.Errorf("%s: sizeBytes is negative", op)
+	}
+	if sizeBytes > 1<<30 {
+		return "", fmt.Errorf("%s: %w", op, repository.ErrFileTooLarge)
+	}
+
+	id := uuid.NewString()
+
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO files (id, user_id, path, size_bytes, mime_type, storage_key)
+		VALUES ($1::uuid, $2, $3, $4, $5, $6)
+	`, id, userID, path, sizeBytes, mimeType, storageKey)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case pgUniqueViolation:
+				return "", fmt.Errorf("%s: %w", op, repository.ErrFileExists)
+			case pgForeignKeyViolation:
+				return "", fmt.Errorf("%s: %w", op, repository.ErrUserNotFound)
+			case pgCheckViolation:
+				return "", fmt.Errorf("%s: %w", op, repository.ErrFileTooLarge)
+			}
+		}
+		return "", fmt.Errorf("%s: %w", op, err)
 	}
 
 	return id, nil

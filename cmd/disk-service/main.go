@@ -4,7 +4,10 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/sheixpeer/disk-service/internal/config"
+	mwLogger "github.com/sheixpeer/disk-service/internal/http-server/middleware/logger"
 	"github.com/sheixpeer/disk-service/internal/lib/logger/sl"
 	"github.com/sheixpeer/disk-service/internal/repository/postgres"
 )
@@ -31,10 +34,14 @@ func main() {
 
 	_ = repo
 
-	// TODO: init router: chi, "chi render"
+	router := chi.NewRouter()
+
+	router.Use(middleware.RequestID)
+	router.Use(mwLogger.New(log))
+	router.Use(middleware.Recoverer)
+	router.Use(middleware.URLFormat)
 
 	// TODO: run server
-
 }
 
 func setupLogger(env string) *slog.Logger {
