@@ -58,12 +58,20 @@ func New(dbURL string) (*Repository, error) {
 	return &Repository{pool: pool}, nil
 }
 
+// Close закрывает пул соединений с Postgres и освобождает ресурсы репозитория.
+// Обычно вызывается при завершении приложения (например, `defer repo.Close()`).
+func (r *Repository) Close() {
+	if r == nil || r.pool == nil {
+		return
+	}
+	r.pool.Close()
+}
+
 func (r *Repository) CreateUser(ctx context.Context, externalUserID string) (int64, error) {
 	const op = "repository.postgres.CreateUser"
 
-	// TODO: мб стоит добавить такую ошибку в repository.go
 	if externalUserID == "" {
-		return 0, fmt.Errorf("%s: externalUserID is empty", op)
+		return 0, fmt.Errorf("%s: %w", op, repository.ErrExternalUserIDEmpty)
 	}
 
 	var id int64
@@ -88,7 +96,7 @@ func (r *Repository) GetUserID(ctx context.Context, externalUserID string) (int6
 	const op = "repository.postgres.GetUserID"
 
 	if externalUserID == "" {
-		return 0, fmt.Errorf("%s: externalUserID is empty", op)
+		return 0, fmt.Errorf("%s: %w", op, repository.ErrExternalUserIDEmpty)
 	}
 
 	var id int64
@@ -118,7 +126,7 @@ func (r *Repository) EnsureUserID(ctx context.Context, externalUserID string) (i
 	const op = "repository.postgres.EnsureUserID"
 
 	if externalUserID == "" {
-		return 0, fmt.Errorf("%s: externalUserID is empty", op)
+		return 0, fmt.Errorf("%s: %w", op, repository.ErrExternalUserIDEmpty)
 	}
 
 	var id int64
@@ -152,16 +160,16 @@ func (r *Repository) CreateFile(
 	const op = "repository.postgres.CreateFile"
 
 	if userID <= 0 {
-		return "", fmt.Errorf("%s: userID must be positive", op)
+		return "", fmt.Errorf("%s: %w", op, repository.ErrUserIDMustBePositive)
 	}
 	if path == "" {
-		return "", fmt.Errorf("%s: path is empty", op)
+		return "", fmt.Errorf("%s: %w", op, repository.ErrFilePathEmpty)
 	}
 	if storageKey == "" {
-		return "", fmt.Errorf("%s: storageKey is empty", op)
+		return "", fmt.Errorf("%s: %w", op, repository.ErrStorageKeyEmpty)
 	}
 	if sizeBytes < 0 {
-		return "", fmt.Errorf("%s: sizeBytes is negative", op)
+		return "", fmt.Errorf("%s: %w", op, repository.ErrFileSizeNegative)
 	}
 	if sizeBytes > 1<<30 {
 		return "", fmt.Errorf("%s: %w", op, repository.ErrFileTooLarge)
@@ -189,4 +197,106 @@ func (r *Repository) CreateFile(
 	}
 
 	return id, nil
+}
+
+func (r *Repository) GetFileByPath(ctx context.Context, userID int64, path string) (repository.File, error) {
+	const op = "repository.postgres.GetFileByPath"
+
+	if userID <= 0 {
+		return repository.File{}, fmt.Errorf("%s: %w", op, repository.ErrUserIDMustBePositive)
+	}
+	if path == "" {
+		return repository.File{}, fmt.Errorf("%s: %w", op, repository.ErrFilePathEmpty)
+	}
+
+	var file repository.File
+	err := r.pool.QueryRow(ctx, `
+		SELECT id::text, user_id, path, size_bytes, mime_type, storage_key, created_at
+		FROM files
+		WHERE user_id = $1 AND path = $2
+	`, userID, path).Scan(
+		&file.ID,
+		&file.UserID,
+		&file.Path,
+		&file.SizeBytes,
+		&file.MimeType,
+		&file.StorageKey,
+		&file.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return repository.File{}, fmt.Errorf("%s: %w", op, repository.ErrFileNotFound)
+		}
+		return repository.File{}, fmt.Errorf("%s: %w", op, err)
+	}
+
+	return file, nil
+}
+
+func (r *Repository) ListFiles(ctx context.Context, userID int64) ([]repository.File, error) {
+	const op = "repository.postgres.ListFiles"
+
+	if userID <= 0 {
+		return nil, fmt.Errorf("%s: %w", op, repository.ErrUserIDMustBePositive)
+	}
+
+	rows, err := r.pool.Query(ctx, `
+		SELECT id::text, user_id, path, size_bytes, mime_type, storage_key, created_at
+		FROM files
+		WHERE user_id = $1
+		ORDER BY created_at DESC, path ASC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+	defer rows.Close()
+
+	files := make([]repository.File, 0)
+	for rows.Next() {
+		var file repository.File
+		if err := rows.Scan(
+			&file.ID,
+			&file.UserID,
+			&file.Path,
+			&file.SizeBytes,
+			&file.MimeType,
+			&file.StorageKey,
+			&file.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("%s: %w", op, err)
+		}
+
+		files = append(files, file)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+
+	return files, nil
+}
+
+func (r *Repository) DeleteFile(ctx context.Context, userID int64, path string) (string, error) {
+	const op = "repository.postgres.DeleteFile"
+
+	if userID <= 0 {
+		return "", fmt.Errorf("%s: %w", op, repository.ErrUserIDMustBePositive)
+	}
+	if path == "" {
+		return "", fmt.Errorf("%s: %w", op, repository.ErrFilePathEmpty)
+	}
+
+	var storageKey string
+	err := r.pool.QueryRow(ctx, `
+		DELETE FROM files
+		WHERE user_id = $1 AND path = $2
+		RETURNING storage_key
+	`, userID, path).Scan(&storageKey)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("%s: %w", op, repository.ErrFileNotFound)
+		}
+		return "", fmt.Errorf("%s: %w", op, err)
+	}
+
+	return storageKey, nil
 }
